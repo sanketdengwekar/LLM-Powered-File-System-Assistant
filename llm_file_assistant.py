@@ -93,44 +93,49 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
 
 
 def run_assistant(user_query: str) -> str:
-    api_key = os.getenv('OPENAI_API_KEY')
-    if not api_key:
-        raise RuntimeError('OPENAI_API_KEY is not set. Add it to your environment or .env file.')
+    query = user_query.lower()
 
-    client = OpenAI(api_key=api_key)
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_query},
-    ]
+    if "read all resumes" in query:
+        files = list_files("sample_data/resumes")
+        result = []
 
-    for _ in range(6):
-        response = client.chat.completions.create(
-            model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
-            messages=messages,
-            tools=TOOLS,
-            tool_choice='auto',
-            temperature=0.2,
+        for file in files:
+            data = read_file(file["path"])
+            result.append(f"\n=== {file['name']} ===\n")
+            result.append(data.get("content", "")[:1000])
+
+        return "\n".join(result)
+
+    elif "python experience" in query:
+        files = list_files("sample_data/resumes")
+        matches = []
+
+        for file in files:
+            res = search_in_file(file["path"], "python")
+            if res.get("matches"):
+                matches.append(file["name"])
+
+        return "Matching resumes:\n" + "\n".join(matches)
+
+    elif "summary" in query:
+        files = list_files("sample_data/resumes")
+
+        if not files:
+            return "No resumes found"
+
+        resume = files[0]
+        content = read_file(resume["path"]).get("content", "")
+
+        summary = content[:500]
+
+        write_file(
+            "output/resume_summary.txt",
+            summary
         )
-        message = response.choices[0].message
 
-        if not message.tool_calls:
-            return message.content or ''
+        return "Summary saved to output/resume_summary.txt"
 
-        messages.append(message.model_dump())
-
-        for tool_call in message.tool_calls:
-            tool_name = tool_call.function.name
-            arguments = json.loads(tool_call.function.arguments)
-            result = call_tool(tool_name, arguments)
-            messages.append({
-                'role': 'tool',
-                'tool_call_id': tool_call.id,
-                'name': tool_name,
-                'content': json.dumps(result, ensure_ascii=False)
-            })
-
-    return 'Tool-calling loop limit reached. Please refine the query.'
-
+    return "Unsupported query."
 
 if __name__ == '__main__':
     print('Resume File Assistant')
